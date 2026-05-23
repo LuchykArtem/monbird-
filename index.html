@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MonBird — The Fastest Bird on the Fastest Chain</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#10002b; font-family:'Courier New',monospace; color:#C4B5FD; display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:20px 0; }
+h1 { color:#836EF9; font-size:11px; letter-spacing:4px; margin-bottom:12px; opacity:0.5; }
+#wrapper { width:420px; display:flex; flex-direction:column; align-items:center; }
+#gameCanvas { display:block; cursor:pointer; border:1px solid #4C2A99; }
+#hud { width:420px; background:#1a0040; border:1px solid #4C2A99; border-top:none; display:flex; justify-content:space-around; padding:8px 0; font-size:13px; letter-spacing:1px; }
+.hud-item { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.hud-label { color:#6d28d9; font-size:10px; letter-spacing:2px; }
+.hud-val { color:#C4B5FD; font-size:16px; font-weight:bold; }
+#chainbar { width:420px; background:#0d0025; border:1px solid #2e1065; border-top:none; padding:5px 10px; display:flex; justify-content:space-between; align-items:center; font-size:9px; color:#6d28d9; letter-spacing:0.5px; }
+#chainbar a { color:#836EF9; text-decoration:none; }
+#walletBtn { background:#4C2A99; color:#C4B5FD; border:1px solid #836EF9; padding:4px 10px; font-family:'Courier New',monospace; font-size:9px; cursor:pointer; letter-spacing:1px; }
+#walletBtn:hover { background:#6d28d9; }
+#txNotif { width:420px; background:#0d0025; border:1px solid #4C2A99; border-top:none; padding:6px 10px; font-size:9px; color:#836EF9; display:none; word-break:break-all; line-height:1.6; }
+#txNotif a { color:#C4B5FD; }
+</style>
+</head>
+<body>
+<h1>MONBIRD · MONAD</h1>
+<div id="wrapper">
+<canvas id="gameCanvas" width="420" height="520"></canvas>
+<div id="hud">
+  <div class="hud-item"><span class="hud-label">SCORE</span><span class="hud-val" id="hudScore">0</span></div>
+  <div class="hud-item"><span class="hud-label">BEST</span><span class="hud-val" id="hudBest">0</span></div>
+  <div class="hud-item"><span class="hud-label">CHAIN</span><span class="hud-val" id="hudChain">0</span></div>
+  <div class="hud-item"><span class="hud-label">MINTED</span><span class="hud-val" id="hudMinted">0</span></div>
+</div>
+<div id="chainbar">
+  <span>MONAD · CHAIN ID: 10143</span>
+  <span><a href="https://testnet.monadexplorer.com" target="_blank">testnet.monadexplorer.com</a></span>
+  <button id="walletBtn" onclick="connectWallet()">CONNECT</button>
+</div>
+<div id="txNotif"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+<script>
+const CONTRACT_ADDRESS="0xE0a48d12b2C657Ad1D4233703F8174494261b794";
+const CONTRACT_ABI=["function submitScore(uint32 score, uint32 chain) external","function highScore(address) view returns (uint32)"];
+const canvas=document.getElementById('gameCanvas');
+const ctx=canvas.getContext('2d');
+const W=420,H=520;
+let state='title',score=0,best=0,chain=0,minted=0,frame=0;
+let walletAddr=null,provider=null,signer=null,contract=null;
+const bird={x:90,y:240,vy:0,rot:0,wingPhase:0};
+const GRAVITY=0.38,FLAP=-7.2,BIRD_R=14;
+let pipes=[],pipeTimer=0;
+const PIPE_W=52,PIPE_GAP=140,PIPE_SPEED=2.2,PIPE_INTERVAL=90;
+const stars=Array.from({length:80},()=>({x:Math.random()*W,y:Math.random()*(H*0.72),r:Math.random()*1.4+0.3,phase:Math.random()*Math.PI*2,speed:Math.random()*0.04+0.01}));
+const particles=Array.from({length:28},()=>({x:Math.random()*W,y:Math.random()*H*0.8,vx:(Math.random()-0.5)*0.4,vy:-Math.random()*0.5-0.1,r:Math.random()*2+0.5,alpha:Math.random()*0.5+0.1,color:['#836EF9','#C4B5FD','#6d28d9'][Math.floor(Math.random()*3)]}));
+let waveOffset=0;
+function resetBird(){bird.x=90;bird.y=240;bird.vy=0;bird.rot=0;bird.wingPhase=0;}
+function resetGame(){score=0;pipes=[];pipeTimer=0;chain=0;resetBird();updateHUD();}
+function flap(){if(state==='title'){state='play';resetGame();return;}if(state==='dead'){state='title';return;}bird.vy=FLAP;}
+canvas.addEventListener('click',flap);
+canvas.addEventListener('touchstart',e=>{e.preventDefault();flap();},{passive:false});
+document.addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault();flap();}});
+function updateHUD(){document.getElementById('hudScore').textContent=score;document.getElementById('hudBest').textContent=best;document.getElementById('hudChain').textContent=chain;document.getElementById('hudMinted').textContent=minted;}
+function drawBg(){ctx.fillStyle='#10002b';ctx.fillRect(0,0,W,H);}
+function drawStars(t){stars.forEach(s=>{const tw=0.4+0.6*Math.sin(t*s.speed+s.phase);ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fillStyle=`rgba(196,181,253,${tw})`;ctx.fill();});}
+function drawParticles(){particles.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle=p.color;ctx.globalAlpha=p.alpha;ctx.fill();ctx.globalAlpha=1;p.x+=p.vx;p.y+=p.vy;if(p.y<0){p.y=H*0.8;p.x=Math.random()*W;}if(p.x<0||p.x>W)p.vx*=-1;});}
+function drawWater(t){const wy=H-68;ctx.fillStyle='#0284c7';ctx.beginPath();ctx.moveTo(0,H);for(let x=0;x<=W;x+=4)ctx.lineTo(x,wy+12+Math.sin(x*0.025+t*1.2)*7+Math.sin(x*0.04+t*0.8)*4);ctx.lineTo(W,H);ctx.closePath();ctx.fill();ctx.fillStyle='#0ea5e9';ctx.beginPath();ctx.moveTo(0,H);for(let x=0;x<=W;x+=4)ctx.lineTo(x,wy+6+Math.sin(x*0.03+t*1.6+1)*6+Math.sin(x*0.05+t*1.0+2)*3);ctx.lineTo(W,H);ctx.closePath();ctx.fill();ctx.fillStyle='#38bdf8';ctx.globalAlpha=0.55;ctx.beginPath();ctx.moveTo(0,H);for(let x=0;x<=W;x+=4)ctx.lineTo(x,wy+Math.sin(x*0.04+t*2.1+0.5)*5+Math.sin(x*0.06+t*1.3+1)*2);ctx.lineTo(W,H);ctx.closePath();ctx.fill();ctx.globalAlpha=1;}
+function drawPipe(x,topH,botY){ctx.fillStyle='#2e1065';ctx.fillRect(x+4,0,PIPE_W,topH);ctx.fillRect(x+4,botY,PIPE_W,H-botY);ctx.fillStyle='#4C2A99';ctx.fillRect(x,0,PIPE_W,topH);ctx.fillRect(x,botY,PIPE_W,H-botY);ctx.fillStyle='#6d28d9';ctx.fillRect(x+6,0,8,topH);ctx.fillRect(x+6,botY,8,H-botY);const ch=18,cx2=x-5;ctx.fillStyle='#2e1065';ctx.fillRect(cx2+5,topH-ch,PIPE_W+5,ch+1);ctx.fillRect(cx2+5,botY,PIPE_W+5,ch);ctx.fillStyle='#6d28d9';ctx.fillRect(cx2,topH-ch,PIPE_W+10,ch);ctx.fillRect(cx2,botY,PIPE_W+10,ch);ctx.fillStyle='#836EF9';ctx.fillRect(cx2+4,topH-ch,8,ch);ctx.fillRect(cx2+4,botY,8,ch);}
+function drawBird(bx,by,rot,wingPhase){ctx.save();ctx.translate(bx,by);ctx.rotate(rot);ctx.beginPath();ctx.ellipse(0,0,BIRD_R,BIRD_R-2,0,0,Math.PI*2);ctx.fillStyle='#836EF9';ctx.fill();ctx.beginPath();ctx.ellipse(2,3,BIRD_R*0.55,BIRD_R*0.45,0.3,0,Math.PI*2);ctx.fillStyle='#C4B5FD';ctx.fill();const wy=Math.sin(wingPhase)*5;ctx.beginPath();ctx.ellipse(-4,wy,BIRD_R*0.6,BIRD_R*0.32,-0.4,0,Math.PI*2);ctx.fillStyle='#6d28d9';ctx.fill();ctx.beginPath();ctx.arc(7,-4,4,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();ctx.beginPath();ctx.arc(8,-4,2,0,Math.PI*2);ctx.fillStyle='#10002b';ctx.fill();ctx.beginPath();ctx.arc(8.5,-4.5,0.8,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();ctx.beginPath();ctx.moveTo(12,-1);ctx.lineTo(20,1);ctx.lineTo(12,4);ctx.closePath();ctx.fillStyle='#fbbf24';ctx.fill();ctx.restore();}
+function drawBanner(){ctx.fillStyle='rgba(16,0,43,0.82)';ctx.fillRect(0,0,W,32);ctx.font='bold 18px Courier New';ctx.fillStyle='#836EF9';ctx.textAlign='center';ctx.fillText('MONBIRD',W/2,21);if(walletAddr){ctx.font='8px Courier New';ctx.fillStyle='#4C2A99';ctx.fillRect(W-86,8,80,16);ctx.strokeStyle='#836EF9';ctx.lineWidth=0.5;ctx.strokeRect(W-86,8,80,16);ctx.fillStyle='#C4B5FD';ctx.textAlign='right';ctx.fillText('✓ '+walletAddr.slice(0,6)+'…'+walletAddr.slice(-4),W-6,19);ctx.textAlign='center';}}
+function drawScoreBox(){if(state!=='play')return;ctx.fillStyle='rgba(76,42,153,0.75)';ctx.fillRect(W/2-36,44,72,32);ctx.strokeStyle='#836EF9';ctx.lineWidth=1;ctx.strokeRect(W/2-36,44,72,32);ctx.font='bold 22px Courier New';ctx.fillStyle='#C4B5FD';ctx.textAlign='center';ctx.fillText(score,W/2,66);}
+function drawTitle(){ctx.fillStyle='rgba(16,0,43,0.6)';ctx.fillRect(0,60,W,H-68-60);ctx.font='bold 36px Courier New';ctx.fillStyle='#836EF9';ctx.textAlign='center';ctx.fillText('MONBIRD',W/2,170);ctx.font='11px Courier New';ctx.fillStyle='#C4B5FD';ctx.fillText('THE FASTEST BIRD ON',W/2,200);ctx.fillText('THE FASTEST CHAIN',W/2,216);const pulse=0.5+0.5*Math.sin(frame*0.08);ctx.globalAlpha=0.5+0.5*pulse;ctx.font='13px Courier New';ctx.fillStyle='#836EF9';ctx.fillText('[ TAP / SPACE TO FLAP ]',W/2,260);ctx.globalAlpha=1;if(!walletAddr){ctx.font='10px Courier New';ctx.fillStyle='#6d28d9';ctx.fillText('connect wallet to mint scores on-chain',W/2,290);}const idleBob=Math.sin(frame*0.05)*6;drawBird(W/2,H*0.55+idleBob,0,frame*0.15);}
+function drawGameOver(){ctx.fillStyle='rgba(16,0,43,0.78)';ctx.fillRect(0,60,W,H-68-60);ctx.font='bold 28px Courier New';ctx.fillStyle='#836EF9';ctx.textAlign='center';ctx.fillText('GAME OVER',W/2,170);ctx.font='12px Courier New';ctx.fillStyle='#C4B5FD';ctx.fillText('SCORE: '+score,W/2,198);if(score===best&&score>0){ctx.fillStyle='#fbbf24';ctx.fillText('★ NEW BEST ★',W/2,218);}const pulse=0.5+0.5*Math.sin(frame*0.08);ctx.globalAlpha=0.5+0.5*pulse;ctx.font='11px Courier New';ctx.fillStyle='#836EF9';ctx.fillText('[ TAP TO RETURN ]',W/2,310);ctx.globalAlpha=1;}
+function checkCollision(){const WATER_Y=H-68;if(bird.y+BIRD_R>WATER_Y||bird.y-BIRD_R<32)return true;for(const p of pipes){if(bird.x+BIRD_R-4>p.x&&bird.x-BIRD_R+4<p.x+PIPE_W){if(bird.y-BIRD_R+4<p.topH||bird.y+BIRD_R-4>p.botY)return true;}}return false;}
+async function submitScoreOnChain(s,c){if(!contract||!walletAddr||s===0)return;const notif=document.getElementById('txNotif');notif.style.display='block';notif.textContent='Submitting score to Monad...';try{const tx=await contract.submitScore(s,c);notif.innerHTML='Tx pending... <a href="https://testnet.monadexplorer.com/tx/'+tx.hash+'" target="_blank">'+tx.hash.slice(0,20)+'…</a>';await tx.wait();minted++;updateHUD();notif.innerHTML='Score minted on Monad! <a href="https://testnet.monadexplorer.com/tx/'+tx.hash+'" target="_blank">View on explorer</a>';setTimeout(()=>{notif.style.display='none';},10000);}catch(e){notif.textContent='Tx failed: '+(e.reason||e.message||'unknown');setTimeout(()=>{notif.style.display='none';},5000);}}
+function onDeath(){state='dead';if(score>best)best=score;updateHUD();if(walletAddr&&score>0)submitScoreOnChain(score,chain);}
+function tick(){frame++;const t=frame*0.016;waveOffset=t;drawBg();drawStars(t);drawParticles();if(state==='play'){pipeTimer++;if(pipeTimer>=PIPE_INTERVAL){pipeTimer=0;const minH=60,maxH=H-68-PIPE_GAP-60;const topH=Math.random()*(maxH-minH)+minH;pipes.push({x:W+10,topH,botY:topH+PIPE_GAP,passed:false});}pipes.forEach(p=>{p.x-=PIPE_SPEED;if(!p.passed&&p.x+PIPE_W<bird.x){p.passed=true;score++;chain++;updateHUD();}});pipes=pipes.filter(p=>p.x>-PIPE_W-20);}pipes.forEach(p=>drawPipe(p.x,p.topH,p.botY));drawWater(waveOffset);drawBanner();if(state==='play'){bird.vy+=GRAVITY;bird.y+=bird.vy;bird.rot=Math.max(-0.5,Math.min(1.3,bird.vy*0.06));bird.wingPhase+=0.28;drawBird(bird.x,bird.y,bird.rot,bird.wingPhase);drawScoreBox();if(checkCollision())onDeath();}else if(state==='title'){drawTitle();}else if(state==='dead'){drawBird(bird.x,bird.y,1.2,bird.wingPhase);drawGameOver();}requestAnimationFrame(tick);}
+async function connectWallet(){if(!window.ethereum){alert('No wallet detected. Install MetaMask.');return;}try{const accounts=await window.ethereum.request({method:'eth_requestAccounts'});walletAddr=accounts[0];document.getElementById('walletBtn').textContent=walletAddr.slice(0,6)+'…';try{await window.ethereum.request({method:'wallet_switchEthereumChain',params:[{chainId:'0x277F'}]});}catch(se){if(se.code===4902){await window.ethereum.request({method:'wallet_addEthereumChain',params:[{chainId:'0x277F',chainName:'Monad Testnet',nativeCurrency:{name:'MON',symbol:'MON',decimals:18},rpcUrls:['https://testnet-rpc.monad.xyz/'],blockExplorerUrls:['https://testnet.monadexplorer.com/']}]});}}if(window.ethers){provider=new ethers.BrowserProvider(window.ethereum);signer=await provider.getSigner();contract=new ethers.Contract(CONTRACT_ADDRESS,CONTRACT_ABI,signer);try{const ob=await contract.highScore(walletAddr);if(Number(ob)>best){best=Number(ob);updateHUD();}}catch(e){}}updateHUD();}catch(e){console.log('Wallet connect failed:',e);}}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
